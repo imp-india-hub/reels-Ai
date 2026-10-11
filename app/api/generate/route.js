@@ -46,6 +46,49 @@ function collectText(value, out = []) {
   return out;
 }
 
+function parseJsonObject(text) {
+  const cleaned = String(text || "")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  // First try the full response (the normal, ideal case).
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch {}
+
+  // Some models wrap JSON in a short preamble or code fence. Extract the first
+  // complete top-level object without being confused by braces inside strings.
+  const start = cleaned.indexOf("{");
+  if (start < 0) throw new Error("No JSON object found in model response.");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const candidate = cleaned.slice(start, i + 1);
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+        break;
+      }
+    }
+  }
+  throw new Error("The response did not contain a complete valid JSON object.");
+}
+
 function extractOutputText(data) {
   // Interactions API normally exposes output_text, but depending on API
   // response shape the generated text can be nested in output/steps.
@@ -161,15 +204,16 @@ Return only a JSON object matching the requested schema.`;
       }
 
       try {
-        const parsed = JSON.parse(outputText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+        const parsed = parseJsonObject(outputText);
         if (!Array.isArray(parsed.scenes) || parsed.scenes.length !== 7) {
           lastError = new Error(`Model ${model} returned ${parsed?.scenes?.length || 0} scenes instead of 7.`);
           continue;
         }
         reel = parsed;
         break;
-      } catch {
-        lastError = new Error(`OpenRouter model ${model} returned invalid JSON. Try another model or retry.`);
+      } catch (parseError) {
+        const excerpt = outputText.replace(/\s+/g, " ").trim().slice(0, 240);
+        lastError = new Error(`OpenRouter model ${model} returned invalid or incomplete JSON. ${parseError?.message || "Could not parse response."} Response preview: ${excerpt}`);
       }
     }
 
