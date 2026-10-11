@@ -179,7 +179,7 @@ export default function Home() {
         }
         if (!img) {
           ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#ffffff"; ctx.font = "bold 40px sans-serif"; ctx.fillText(scene.headline || `Scene ${i + 1}`, 48, 180, 620);
+          ctx.fillStyle = "#ffffff"; ctx.font = "bold 40px sans-serif"; ctx.fillText(scene.headline || "A moment unfolds", 48, 180, 620);
           ctx.font = "28px sans-serif"; ctx.fillText("Visual unavailable", 48, 240);
         }
         const duration = Math.max(3, Number(audio.duration) || 5);
@@ -198,7 +198,7 @@ export default function Home() {
             const maxW = 130, maxH = 80, sc = Math.min(maxW / logo.width, maxH / logo.height, 1);
             ctx.drawImage(logo, canvas.width - logo.width * sc - 28, 28, logo.width * sc, logo.height * sc);
           }
-          ctx.fillStyle = "#93c5fd"; ctx.font = "bold 24px sans-serif"; ctx.fillText(`SCENE ${i + 1} / ${scenes.length}`, 42, canvas.height - 220);
+          
           ctx.fillStyle = "#ffffff"; ctx.font = "bold 42px sans-serif";
           const headline = String(scene.headline || "").slice(0, 90); ctx.fillText(headline, 42, canvas.height - 168, 630);
           ctx.font = "30px sans-serif";
@@ -269,7 +269,7 @@ export default function Home() {
       </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>
-      {visuals[i]?.url ? <img src={visuals[i].url} alt=""/> : <div className="thumbBlank">Visual unavailable</div>}<b>{i + 1}. {x.headline}</b><p>{x.voiceover}</p><small>{visuals[i]?.source}</small>
+      {visuals[i]?.url ? <img src={visuals[i].url} alt=""/> : <div className="thumbBlank">Visual unavailable</div>}<b>{x.headline}</b><p>{x.voiceover}</p><small>{visuals[i]?.source}</small>
     </article>)}</div></section>}
   </main>;
 }
