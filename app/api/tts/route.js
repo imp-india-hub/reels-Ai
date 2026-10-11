@@ -1,12 +1,11 @@
 export const runtime = "nodejs";
 
-const DEFAULT_TTS_MODEL = "fish-audio/s2.1-pro-free";
+const DEFAULT_TTS_MODEL = "fish-audio/s2.1-pro-free:free";
 
 function getTtsModel() {
-  // OpenRouter lists Fish Audio S2.1 Pro Free under this model ID. Accept the
-  // user's optional :free suffix in Vercel and normalize it to the catalog ID.
+  // OpenRouter's free variant uses the :free model variant suffix.
   const configured = process.env.OPENROUTER_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL;
-  if (configured === "fish-audio/s2.1-pro-free:free") return "fish-audio/s2.1-pro-free";
+  if (configured === "fish-audio/s2.1-pro-free") return "fish-audio/s2.1-pro-free:free";
   return configured;
 }
 

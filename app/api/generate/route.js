@@ -94,16 +94,21 @@ export async function POST(request) {
     const prompt = `Write a short, emotionally connected STORY for a vertical social-media reel about "${clean}". Create exactly 7 consecutive story beats, but NEVER write or speak labels such as "Scene 1", "Scene 2", numbers, chapter names, or transition announcements.
 Think like a storyteller, not a presenter giving a speech or a list of tips. Use one relatable person, moment, problem, desire, or situation as the emotional thread whenever the topic allows. Begin with a vivid moment or feeling that makes viewers curious. Each next beat must grow naturally from the previous beat: show what happened next, what changed, what the person felt or discovered, and why it matters. Include a small obstacle or tension, a believable turning point, and a satisfying emotional payoff. Make the SEVENTH and final beat a clear, compelling call to action (CTA) that grows naturally from the story: tell the viewer exactly ONE next step to take now (for example comment with an answer, save this for later, share it with someone who needs it, try the solution, or visit/contact the brand if the topic clearly supports that). Make the benefit or emotional reason to act clear. Keep it short, specific to this topic, warm and memorable; avoid vague endings like “what do you think?”, “follow for more”, “learn more”, or “take the first step” unless made concrete. Do not invent URLs, phone numbers, discounts, guarantees, or brand claims. For Hindi/bilingual reels, write the CTA naturally in the selected language style. The seventh headline should be a natural CTA phrase, never a scene label. The final voiceover must finish with the actual spoken CTA, not just a moral or summary. Avoid generic introductions like "Today we will talk about", "First", "Secondly", "In conclusion", and avoid repeating the topic as a lecture.
 ${languageInstruction}
-Every headline and voiceover must sound like the next line in the SAME story. Voiceover is conversational and emotionally warm, 12-22 words per beat. Use natural spoken phrasing and concrete details; do not use bullet points or numbered language. Keep transitions implicit through cause-and-effect, not labels. Headline is a short, cinematic phrase, not a scene label.
+Every headline and voiceover must sound like the next line in the SAME story. Voiceover is conversational and emotionally warm, 12-18 words per beat. Keep visual_prompt concise (10-18 words), visual_query 2-5 keywords, and headline 2-6 words. Do not include explanations outside the JSON. Keep transitions implicit through cause-and-effect, not labels. Headline is a short, cinematic phrase, not a scene label.
 Each visual_prompt describes the matching moment in the story, keeping the same people/setting visually consistent across beats where appropriate. Visuals must be realistic/cinematic, vertical, and contain absolutely NO text of any kind: no words, letters, captions, subtitles, labels, scene numbers, digits, typography, logos, watermarks, UI, or signage. Depict only the visual moment. Never put “Scene 1”, “Scene 2”, or any numbering inside an image.
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
-    // Try the configured model first, then a known free model, then OpenRouter's
-    // free-only router. All candidates are free-model IDs; no paid model fallback.
-    // Dots3-Note Preview may be unavailable/retired on some accounts.
+    // Prefer explicit free models with structured-output support before the
+    // random free router. The router can select a reasoning-heavy model that
+    // spends its output budget thinking and returns no final JSON.
     const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim() || "inclusionai/ling-3.1-flash";
-    const models = [...new Set([configuredModel, "inclusionai/ling-3.1-flash", "openrouter/free"])];
+    const models = [...new Set([
+      configuredModel,
+      "google/gemma-4-31b-it:free",
+      "qwen/qwen3.8-27b:free",
+      "openrouter/free"
+    ])];
     let reel = null;
     let lastError = null;
 
@@ -126,8 +131,8 @@ Return only a JSON object matching the requested schema.`;
               { role: "user", content: prompt }
             ],
             response_format: { type: "json_object" },
-            temperature: 0.7,
-            max_tokens: 7000
+            temperature: 0.4,
+            max_tokens: 5000
           }),
           cache: "no-store"
         });
@@ -199,7 +204,7 @@ Return only a JSON object matching the requested schema.`;
     } else if (e?.status === 429 || lower.includes("quota") || lower.includes("resource exhausted") || lower.includes("rate limit")) {
       error = "OpenRouter free-model rate limits may have been reached. Wait and retry, or check OpenRouter activity.";
     } else if (e?.status === 404 || lower.includes("not found") || lower.includes("model")) {
-      error = "OpenRouter could not use the configured model. The app now tries inclusionAI Ling 3.1 Flash and then the free-model router. Check the detail below for the upstream response.";
+      error = "OpenRouter could not generate a script with the configured model or explicit free fallbacks. The app tries Gemma 4, Qwen 3.8, and then the free-model router. Check the detail below.";
     } else if (lower.includes("invalid json")) {
       error = "OpenRouter responded, but the reel JSON was invalid. Please try again.";
     }
