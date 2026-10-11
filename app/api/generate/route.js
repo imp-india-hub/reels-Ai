@@ -99,49 +99,76 @@ Each visual_prompt describes the matching moment in the story, keeping the same 
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
-    const model = process.env.OPENROUTER_TEXT_MODEL?.trim() || "google/gemini-2.5-flash";
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://reelforge-ai.vercel.app",
-        "X-OpenRouter-Title": "ReelForge AI"
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: "You create concise, useful, engaging short-form video scripts. Return valid JSON only." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_schema", json_schema: { name: "reel_script", strict: true, schema } },
-        temperature: 0.7,
-        max_tokens: 3000
-      }),
-      cache: "no-store"
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const msg = data?.error?.message || data?.message || `HTTP ${response.status}`;
-      const err = new Error(`OpenRouter script generation failed (${response.status}): ${msg}`);
-      err.status = response.status;
-      throw err;
-    }
-    const outputText = data?.choices?.[0]?.message?.content;
-    if (typeof outputText !== "string" || !outputText.trim()) {
-      throw new Error(`OpenRouter returned no script text. Finish reason: ${data?.choices?.[0]?.finish_reason || "unknown"}`);
+    const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim();
+    // Keep a short fallback list so a renamed/unavailable model does not break all script generation.
+    const models = [...new Set([
+      configuredModel || "google/gemini-2.5-flash",
+      "google/gemini-2.5-flash",
+      "openai/gpt-4o-mini",
+      "meta-llama/llama-3.3-70b-instruct"
+    ])];
+    let reel = null;
+    let lastError = null;
+
+    for (const model of models) {
+      let response;
+      let data;
+      try {
+        response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://reelforge-ai.vercel.app",
+            "X-OpenRouter-Title": "ReelForge AI"
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: "You create concise, useful, engaging short-form video scripts. Return valid JSON only, with title, hook, and exactly seven scenes. Each scene needs scene (integer), headline, visual_prompt, visual_query, voiceover, and duration (number)." },
+              { role: "user", content: prompt }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+            max_tokens: 3000
+          }),
+          cache: "no-store"
+        });
+        data = await response.json().catch(() => ({}));
+      } catch (networkError) {
+        lastError = new Error(`Could not connect to OpenRouter using ${model}: ${networkError?.message || networkError}`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const msg = data?.error?.message || data?.message || `HTTP ${response.status}`;
+        lastError = new Error(`OpenRouter request failed for ${model} (${response.status}): ${msg}`);
+        lastError.status = response.status;
+        // Credentials, billing and rate limits cannot be fixed by switching models.
+        if ([401, 403, 402, 429].includes(response.status)) throw lastError;
+        continue;
+      }
+
+      const outputText = data?.choices?.[0]?.message?.content;
+      if (typeof outputText !== "string" || !outputText.trim()) {
+        lastError = new Error(`OpenRouter model ${model} returned no script text. Finish reason: ${data?.choices?.[0]?.finish_reason || "unknown"}`);
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(outputText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+        if (!Array.isArray(parsed.scenes) || parsed.scenes.length !== 7) {
+          lastError = new Error(`Model ${model} returned ${parsed?.scenes?.length || 0} scenes instead of 7.`);
+          continue;
+        }
+        reel = parsed;
+        break;
+      } catch {
+        lastError = new Error(`OpenRouter model ${model} returned invalid JSON. Try another model or retry.`);
+      }
     }
 
-    let reel;
-    try {
-      reel = JSON.parse(outputText);
-    } catch {
-      throw new Error("Gemini returned invalid JSON. Please try the topic again.");
-    }
-
-    if (!Array.isArray(reel.scenes) || reel.scenes.length !== 7) {
-      throw new Error(`Gemini returned ${reel?.scenes?.length || 0} scenes instead of 7.`);
-    }
+    if (!reel) throw (lastError || new Error("OpenRouter script generation failed on all configured fallback models."));
 
     reel.title = String(reel.title || clean);
     reel.hook = String(reel.hook || reel.scenes[0]?.voiceover || "");
@@ -165,12 +192,14 @@ Return only a JSON object matching the requested schema.`;
 
     if (e?.status === 401 || lower.includes("api key") || lower.includes("unauthorized")) {
       error = "OpenRouter API key was rejected. Check OPENROUTER_API_KEY in Vercel.";
+    } else if (e?.status === 402 || lower.includes("insufficient credits") || lower.includes("payment required")) {
+      error = "Your OpenRouter account needs credits or billing setup before it can generate scripts.";
     } else if (e?.status === 403 || lower.includes("permission") || lower.includes("forbidden")) {
       error = "OpenRouter access was denied. Check your API key and account credits.";
     } else if (e?.status === 429 || lower.includes("quota") || lower.includes("resource exhausted") || lower.includes("rate limit")) {
       error = "OpenRouter rate limit or credits reached. Check your OpenRouter activity and credits.";
     } else if (e?.status === 404 || lower.includes("not found") || lower.includes("model")) {
-      error = "The configured OpenRouter model is unavailable. Check OPENROUTER_TEXT_MODEL.";
+      error = "OpenRouter could not use the selected model or its fallbacks. Check OPENROUTER_TEXT_MODEL and model access.";
     } else if (lower.includes("invalid json")) {
       error = "OpenRouter responded, but the reel JSON was invalid. Please try again.";
     }
