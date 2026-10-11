@@ -84,71 +84,49 @@ export async function POST(request) {
       return Response.json({ error: "Please enter a topic first." }, { status: 400 });
     }
 
-    const key = process.env.GEMINI_API_KEY?.trim();
+    const key = process.env.OPENROUTER_API_KEY?.trim();
     if (!key) {
-      return Response.json(
-        { error: "GEMINI_API_KEY is missing in Vercel Environment Variables." },
-        { status: 500 }
-      );
+      return Response.json({ error: "OPENROUTER_API_KEY is missing in Vercel Environment Variables." }, { status: 500 });
     }
 
     const prompt = `Create an engaging 7-scene vertical social media reel about "${clean}".
 Exactly 7 scenes. Scene 1 is a strong hook. Scenes 2-6 provide useful information. Scene 7 is a takeaway or CTA.
-Each voiceover is natural spoken language, 12-22 words.
+Each voiceover is natural spoken language, 12-22 words. Use clear, natural Indian English phrasing when suitable.
 Each visual_prompt is realistic/cinematic, vertical, and must contain no text, logos or watermarks.
-visual_query is 2-5 simple English keywords.
-Duration is normally 4 seconds.
-Return only the requested JSON object.`;
+visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
+Return only a JSON object matching the requested schema.`;
 
-    // Use Gemini's REST Interactions endpoint directly. This avoids SDK-version
-    // differences and follows Google's current documented API contract.
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    const model = process.env.OPENROUTER_TEXT_MODEL?.trim() || "google/gemini-2.5-flash";
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-goog-api-key": key,
-        "Content-Type": "application/json"
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://reelforge-ai.vercel.app",
+        "X-OpenRouter-Title": "ReelForge AI"
       },
       body: JSON.stringify({
-        model: "gemini-3.5-flash-lite",
-        input: prompt,
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema
-        },
-        generation_config: {
-          max_output_tokens: 3000,
-          thinking_level: "low"
-        }
+        model,
+        messages: [
+          { role: "system", content: "You create concise, useful, engaging short-form video scripts. Return valid JSON only." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_schema", json_schema: { name: "reel_script", strict: true, schema } },
+        temperature: 0.7,
+        max_tokens: 3000
       }),
       cache: "no-store"
     });
-
     const data = await response.json().catch(() => ({}));
-
     if (!response.ok) {
-      const apiMessage = data?.error?.message || data?.message || `HTTP ${response.status}`;
-      const error = new Error(apiMessage);
-      error.status = response.status;
-      error.api = data;
-      throw error;
+      const msg = data?.error?.message || data?.message || `HTTP ${response.status}`;
+      const err = new Error(`OpenRouter script generation failed (${response.status}): ${msg}`);
+      err.status = response.status;
+      throw err;
     }
-
-    if (data?.status === "failed") {
-      throw new Error(data?.error?.message || "Gemini interaction failed.");
-    }
-
-    const outputText = extractOutputText(data);
-    if (!outputText) {
-      const shape = {
-        status: data?.status,
-        hasOutputText: typeof data?.output_text === "string",
-        outputType: Array.isArray(data?.output) ? "array" : typeof data?.output,
-        stepCount: Array.isArray(data?.steps) ? data.steps.length : 0,
-        keys: Object.keys(data || {}).slice(0, 20)
-      };
-      console.error("REELFORGE GEMINI EMPTY OUTPUT SHAPE:", JSON.stringify(shape));
-      throw new Error(`Gemini completed but returned no model text. Response shape: ${JSON.stringify(shape)}`);
+    const outputText = data?.choices?.[0]?.message?.content;
+    if (typeof outputText !== "string" || !outputText.trim()) {
+      throw new Error(`OpenRouter returned no script text. Finish reason: ${data?.choices?.[0]?.finish_reason || "unknown"}`);
     }
 
     let reel;
@@ -176,22 +154,22 @@ Return only the requested JSON object.`;
 
     return Response.json(reel);
   } catch (e) {
-    console.error("REELFORGE GEMINI ERROR:", e);
+    console.error("REELFORGE OPENROUTER SCRIPT ERROR:", e);
 
     const message = String(e?.message || e);
     const lower = message.toLowerCase();
-    let error = "Gemini generation failed. Please try again.";
+    let error = "OpenRouter script generation failed. Please try again.";
 
     if (e?.status === 401 || lower.includes("api key") || lower.includes("unauthorized")) {
-      error = "Gemini API key was rejected. Check GEMINI_API_KEY in Vercel.";
+      error = "OpenRouter API key was rejected. Check OPENROUTER_API_KEY in Vercel.";
     } else if (e?.status === 403 || lower.includes("permission") || lower.includes("forbidden")) {
-      error = "Gemini API access was denied. Check that the API key has Gemini API access enabled.";
+      error = "OpenRouter access was denied. Check your API key and account credits.";
     } else if (e?.status === 429 || lower.includes("quota") || lower.includes("resource exhausted") || lower.includes("rate limit")) {
-      error = "Gemini quota/rate limit reached. Check Google AI Studio usage and billing/quota.";
+      error = "OpenRouter rate limit or credits reached. Check your OpenRouter activity and credits.";
     } else if (e?.status === 404 || lower.includes("not found") || lower.includes("model")) {
-      error = "Gemini 3.5 Flash-Lite is unavailable for this API key/project.";
+      error = "The configured OpenRouter model is unavailable. Check OPENROUTER_TEXT_MODEL.";
     } else if (lower.includes("invalid json")) {
-      error = "Gemini responded, but the reel JSON was invalid. Please try again.";
+      error = "OpenRouter responded, but the reel JSON was invalid. Please try again.";
     }
 
     return Response.json({ error, detail: message }, { status: 500 });

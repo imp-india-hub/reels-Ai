@@ -55,7 +55,7 @@ export default function Home() {
     if (!s?.voiceover) return;
     setVoiceLoading(true); setError("");
     try {
-      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: s.voiceover, voice: "Kore" }) });
+      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: s.voiceover }) });
       const d = await r.json();
       if (!r.ok || !d.audio) throw new Error(d?.error || "Voice generation failed.");
       setAudio(d.audio);
@@ -74,11 +74,11 @@ export default function Home() {
   }
 
   return <main>
-    <nav><b>⚡ ReelForge AI</b><span>Gemini + Cloudflare AI · 7 Scenes · 9:16</span></nav>
+    <nav><b>⚡ ReelForge AI</b><span>OpenRouter + Cloudflare AI · 7 Scenes · 9:16</span></nav>
     <section className="hero">
       <div>
         <small>AI REEL STUDIO</small><h1>Turn any topic into a <i>ready-to-share reel.</i></h1>
-        <p>Gemini writes the story. Cloudflare creates the visuals. Gemini TTS creates a natural Indian-English voice.</p>
+        <p>OpenRouter writes the story and creates the voice. Cloudflare creates the visuals.</p>
         <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/><button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate 7 Scenes →"}</button></div>
         {error && <div className="error"><strong>Generation error</strong><div>{error}</div></div>}
         {visualError && <div className="error"><strong>Visual notice</strong><div>{visualError}</div></div>}
