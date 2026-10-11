@@ -127,7 +127,7 @@ Return only a JSON object matching the requested schema.`;
             ],
             response_format: { type: "json_object" },
             temperature: 0.7,
-            max_tokens: 3000
+            max_tokens: 7000
           }),
           cache: "no-store"
         });
@@ -150,7 +150,8 @@ Return only a JSON object matching the requested schema.`;
 
       const outputText = data?.choices?.[0]?.message?.content;
       if (typeof outputText !== "string" || !outputText.trim()) {
-        lastError = new Error(`OpenRouter model ${model} returned no script text. Finish reason: ${data?.choices?.[0]?.finish_reason || "unknown"}`);
+        const finishReason = data?.choices?.[0]?.finish_reason || "unknown";
+        lastError = new Error(`OpenRouter model ${model} returned no script text. Finish reason: ${finishReason}. The model may have exhausted its output-token budget before returning the JSON.`);
         continue;
       }
 
