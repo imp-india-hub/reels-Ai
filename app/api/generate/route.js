@@ -99,14 +99,10 @@ Each visual_prompt describes the matching moment in the story, keeping the same 
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
+    // Use the selected model only. Do not silently switch to a paid model when
+    // the user's intended setup is free-tier OpenRouter inference.
     const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim();
-    // Keep a short fallback list so a renamed/unavailable model does not break all script generation.
-    const models = [...new Set([
-      configuredModel || "google/gemini-2.5-flash",
-      "google/gemini-2.5-flash",
-      "openai/gpt-4o-mini",
-      "meta-llama/llama-3.3-70b-instruct"
-    ])];
+    const models = [configuredModel || "dots-studio/dots-3-note-preview:free"];
     let reel = null;
     let lastError = null;
 

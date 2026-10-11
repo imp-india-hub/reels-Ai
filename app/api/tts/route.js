@@ -1,65 +1,13 @@
 export const runtime = "nodejs";
 
-const CATALOG_URL = "https://openrouter.ai/api/v1/models?output_modalities=speech";
-const PREFERRED_MODELS = [
-  "microsoft/mai-voice-2.1",
-  "microsoft/mai-voice-2",
-  "microsoft/mai-voice-2.1-flash",
-  "google/gemini-3.8-flash-tts",
-  "google/gemini-3.8-flash-lite-tts",
-  "hexgrad/kokoro-82m"
-];
+const DEFAULT_TTS_MODEL = "fish-audio/s2.1-pro-free";
 
-function getVoiceList(model) {
-  const voices = model?.supported_voices;
-  if (Array.isArray(voices)) return voices.filter(v => typeof v === "string");
-  return [];
-}
-
-function isLocaleVoice(voice, language) {
-  if (language === "hi" || language === "bilingual") return /hi[-_]IN(?:[-_:]|$)|hindi/i.test(voice);
-  return /en[-_]IN(?:[-_:]|$)|indian[-_ ]english/i.test(voice);
-}
-
-async function resolveIndianVoice(apiKey, language = "en") {
-  const configuredModel = process.env.OPENROUTER_TTS_MODEL?.trim();
-  const configuredVoice = process.env.OPENROUTER_TTS_VOICE?.trim();
-
-  // Explicit overrides are accepted only when the voice ID itself indicates
-  // Indian English; never let an arbitrary voice silently violate the request.
-  if (configuredModel && configuredVoice && !isLocaleVoice(configuredVoice, language)) {
-    throw new Error(language === "hi" || language === "bilingual" ? "The configured voice is not identified as a supported Hindi voice. Set a verified Hindi voice ID from the OpenRouter speech-model catalog." : "OPENROUTER_TTS_VOICE must be an exact supported Indian-English voice ID containing en-IN.");
-  }
-
-  const r = await fetch(CATALOG_URL, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(10000)
-  });
-  if (!r.ok) throw new Error(`Could not check OpenRouter's supported speech voices (${r.status}). Set OPENROUTER_TTS_MODEL and OPENROUTER_TTS_VOICE to a verified pair.`);
-
-  const catalog = await r.json();
-  const models = Array.isArray(catalog?.data) ? catalog.data : [];
-  const preferred = [...models].sort((a, b) => {
-    const ai = PREFERRED_MODELS.indexOf(a.id);
-    const bi = PREFERRED_MODELS.indexOf(b.id);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-  });
-
-  // Only select a voice whose catalog entry explicitly indicates an Indian
-  // English locale. Never guess a voice ID or silently use an American accent.
-  for (const model of preferred) {
-    if (configuredModel && model.id !== configuredModel) continue;
-    const voices = getVoiceList(model);
-    const voice = configuredVoice
-      ? voices.find(v => v === configuredVoice)
-       : voices.find(v => isLocaleVoice(v, language));
-    if (voice && isLocaleVoice(voice, language)) {
-      return { model: model.id, voice, selectedBy: "verified-catalog" };
-    }
-  }
-
-  throw new Error(language === "hi" || language === "bilingual" ? "OpenRouter did not expose a verified Hindi (hi-IN) voice in its current speech catalog. The script can be generated in Hindi, but voice export needs a speech model/voice that supports Hindi. Check https://openrouter.ai/api/v1/models?output_modalities=speech and configure a verified Hindi voice." : "OpenRouter's current speech-model catalog did not expose a verified Indian-English (en-IN) voice. No audio was generated with a different accent. Check https://openrouter.ai/api/v1/models?output_modalities=speech and set OPENROUTER_TTS_MODEL plus OPENROUTER_TTS_VOICE in Vercel to a model/voice pair that explicitly supports en-IN.");
+function getTtsModel() {
+  // OpenRouter lists Fish Audio S2.1 Pro Free under this model ID. Accept the
+  // user's optional :free suffix in Vercel and normalize it to the catalog ID.
+  const configured = process.env.OPENROUTER_TTS_MODEL?.trim() || DEFAULT_TTS_MODEL;
+  if (configured === "fish-audio/s2.1-pro-free:free") return "fish-audio/s2.1-pro-free";
+  return configured;
 }
 
 export async function POST(request) {
@@ -72,7 +20,17 @@ export async function POST(request) {
     if (typeof text !== "string" || !text.trim()) return Response.json({ error: "Text is required." }, { status: 400 });
     if (text.length > 4000) return Response.json({ error: "Voiceover is too long. Keep it under 4,000 characters." }, { status: 400 });
 
-    const { model, voice, selectedBy } = await resolveIndianVoice(apiKey, language);
+    const model = getTtsModel();
+    const configuredVoice = process.env.OPENROUTER_TTS_VOICE?.trim();
+    const payload = {
+      model,
+      input: text.trim(),
+      response_format: "mp3"
+    };
+    // Fish Audio supports multilingual expressive synthesis. Do not force an
+    // invented/default voice ID; only pass a voice when the deployer configured one.
+    if (configuredVoice) payload.voice = configuredVoice;
+
     const response = await fetch("https://openrouter.ai/api/v1/audio/speech", {
       method: "POST",
       headers: {
@@ -81,19 +39,14 @@ export async function POST(request) {
         "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://reelforge-ai.vercel.app",
         "X-OpenRouter-Title": "ReelForge AI"
       },
-      body: JSON.stringify({
-        model,
-        input: text.trim(),
-        voice,
-        response_format: "mp3"
-      }),
+      body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(60000)
     });
 
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(`OpenRouter TTS failed (${response.status}) for ${model}/${voice}: ${detail.slice(0, 700)}`);
+      throw new Error(`OpenRouter TTS failed (${response.status}) for ${model}: ${detail.slice(0, 700)}`);
     }
 
     const contentType = response.headers.get("content-type") || "";
@@ -106,10 +59,10 @@ export async function POST(request) {
 
     return Response.json({
       audio: `data:${contentType};base64,${bytes.toString("base64")}`,
-      voice,
+      voice: configuredVoice || "model default",
       model,
-      accent: language === "hi" || language === "bilingual" ? "Hindi (verified voice locale)" : "Indian English (verified voice locale)",
-      selectedBy,
+      language,
+      selectedBy: configuredVoice ? "configured voice" : "Fish Audio model default",
       mimeType: contentType
     });
   } catch (e) {
