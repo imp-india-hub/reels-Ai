@@ -137,7 +137,7 @@ export default function Home() {
         filter.type = "lowpass";
         filter.frequency.value = musicStyle === "dramatic" ? 900 : musicStyle === "calm" ? 650 : 1200;
         musicGain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-        musicGain.gain.linearRampToValueAtTime(musicStyle === "dramatic" ? 0.075 : 0.055, audioContext.currentTime + 2.5);
+        musicGain.gain.linearRampToValueAtTime(musicStyle === "dramatic" ? 0.20 : musicStyle === "uplifting" ? 0.16 : 0.14, audioContext.currentTime + 2.5);
         filter.connect(musicGain);
         musicGain.connect(audioDestination);
         musicGain.connect(audioContext.destination);
@@ -145,7 +145,7 @@ export default function Home() {
           const osc = audioContext.createOscillator();
           const voiceGain = audioContext.createGain();
           osc.type = musicStyle === "dramatic" ? "triangle" : musicStyle === "uplifting" ? "sine" : "sine";
-          voiceGain.gain.value = n === 0 ? 0.55 : n === 1 ? 0.30 : 0.18;
+          voiceGain.gain.value = n === 0 ? 0.32 : n === 1 ? 0.24 : 0.18;
           osc.connect(voiceGain); voiceGain.connect(filter); osc.start();
           return { osc, voiceGain };
         });
@@ -205,6 +205,7 @@ export default function Home() {
       };
       const logo = logoData ? await loadImage(logoData) : null;
       const scenes = reel.scenes;
+      if (musicStyle !== "none" && audioDestination.stream.getAudioTracks().length === 0) throw new Error("Background music audio track could not be created. Please use Chrome or Edge and try again.");
       recorder.start(250);
       for (let i = 0; i < scenes.length; i++) {
         const scene = scenes[i];
@@ -255,7 +256,7 @@ export default function Home() {
         };
         draw();
         const tick = setInterval(draw, 1000 / 30);
-        try { await audio.play(); } catch { clearInterval(tick); throw new Error("Browser blocked audio playback. Click export again and allow playback."); }
+        try { if (audioContext.state !== "running") await audioContext.resume(); await audio.play(); } catch { clearInterval(tick); throw new Error("Browser blocked audio playback. Click Download Complete Reel again and allow audio playback."); }
         await new Promise(resolve => {
           let done = false;
           const finish = () => { if (!done) { done = true; resolve(); } };
@@ -315,7 +316,7 @@ export default function Home() {
         {logoData && <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}><img src={logoData} alt="Uploaded logo preview" style={{ maxWidth: 120, maxHeight: 64, objectFit: "contain", background: "#fff", padding: 6, borderRadius: 8 }} /><button type="button" onClick={() => { setLogoData(""); if (logoInputRef.current) logoInputRef.current.value = ""; }}>Remove logo</button></div>}
         <button onClick={downloadCompleteReel} disabled={exporting || !reel?.scenes?.length} style={{ marginTop: 12 }}>{exporting ? "Exporting complete reel…" : "⬇ Download Complete Reel (WebM)"}</button>
         {exportStatus && <p aria-live="polite">{exportStatus}</p>}
-        <small>Export creates a vertical 9:16 WebM with visuals, animated graphics, headlines, generated voiceover, optional continuous background music, and your optional logo. Music is synthesized in-browser; this is WebM, not MP4.</small>
+        <small>Export creates a vertical 9:16 WebM with visuals, animated graphics, headlines, generated voiceover, optional continuous background music, and your optional logo. Music is synthesized in-browser and mixed into the exported audio track; it is heard in the downloaded reel, not in the still-image preview. This is WebM, not MP4.</small>
       </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>
