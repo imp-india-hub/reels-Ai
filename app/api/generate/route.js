@@ -99,11 +99,11 @@ Each visual_prompt describes the matching moment in the story, keeping the same 
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
-    // Try the selected free model first, then OpenRouter's free-only router.
-    // This fallback never selects a paid model. Dots3-Note Preview has had
-    // availability/deprecation changes, so a second free route avoids a hard stop.
-    const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim() || "dots-studio/dots-3-note-preview:free";
-    const models = [...new Set([configuredModel, "openrouter/free"])];
+    // Try the configured model first, then a known free model, then OpenRouter's
+    // free-only router. All candidates are free-model IDs; no paid model fallback.
+    // Dots3-Note Preview may be unavailable/retired on some accounts.
+    const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim() || "inclusionai/ling-3.1-flash";
+    const models = [...new Set([configuredModel, "inclusionai/ling-3.1-flash", "openrouter/free"])];
     let reel = null;
     let lastError = null;
 
@@ -198,7 +198,7 @@ Return only a JSON object matching the requested schema.`;
     } else if (e?.status === 429 || lower.includes("quota") || lower.includes("resource exhausted") || lower.includes("rate limit")) {
       error = "OpenRouter free-model rate limits may have been reached. Wait and retry, or check OpenRouter activity.";
     } else if (e?.status === 404 || lower.includes("not found") || lower.includes("model")) {
-      error = "OpenRouter could not use the selected model or the free-model router. Check the model ID and OpenRouter model availability.";
+      error = "OpenRouter could not use the configured model. The app now tries inclusionAI Ling 3.1 Flash and then the free-model router. Check the detail below for the upstream response.";
     } else if (lower.includes("invalid json")) {
       error = "OpenRouter responded, but the reel JSON was invalid. Please try again.";
     }

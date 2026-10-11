@@ -40,7 +40,7 @@ export default function Home() {
     try {
       const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic, language }) });
       const d = await r.json();
-      if (!r.ok) throw new Error(d?.error || "Gemini generation failed.");
+      if (!r.ok) throw new Error(d?.detail ? `${d?.error || "Generation failed."} Details: ${d.detail}` : (d?.error || "Generation failed."));
       setReel(d);
 
       const initial = d.scenes.map(() => ({ url: null, source: "Generating visual…" }));
