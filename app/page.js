@@ -25,6 +25,8 @@ export default function Home() {
   const [audio, setAudio] = useState(null);
   const [error, setError] = useState("");
   const [visualError, setVisualError] = useState("");
+  const [stockResults, setStockResults] = useState([]);
+  const [stockLoading, setStockLoading] = useState(false);
 
   async function generate() {
     setLoading(true); setError(""); setVisualError(""); setReel(null); setVisuals([]); setActive(0); setAudio(null);
@@ -63,6 +65,25 @@ export default function Home() {
     finally { setVoiceLoading(false); }
   }
 
+  async function searchStock() {
+    if (!s) return;
+    setStockLoading(true); setStockResults([]); setVisualError("");
+    try {
+      const r = await fetch("/api/stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: s.visual_query || s.headline || topic }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || "Stock search failed.");
+      setStockResults(d.results || []);
+      if (!(d.results || []).length) setVisualError("No Pixabay results found. Check your API key or try AI visual generation.");
+    } catch (e) { setVisualError(e?.message || "Stock search failed."); }
+    finally { setStockLoading(false); }
+  }
+
+  function chooseStock(item) {
+    const copy = [...visuals];
+    copy[active] = { url: item.url, source: `Pixabay ${item.kind}`, kind: item.kind, pageURL: item.pageURL };
+    setVisuals(copy); setStockResults([]); setVisualError("");
+  }
+
   async function retryVisual() {
     if (!s) return;
     const copy = [...visuals]; copy[active] = { url: null, source: "Generating visual…" }; setVisuals(copy); setVisualError("");
@@ -78,7 +99,7 @@ export default function Home() {
     <section className="hero">
       <div>
         <small>AI REEL STUDIO</small><h1>Turn any topic into a <i>ready-to-share reel.</i></h1>
-        <p>OpenRouter writes the story and creates the voice. Cloudflare creates the visuals.</p>
+        <p>OpenRouter writes the story and creates the voice. Search real Pixabay footage or create custom visuals with Cloudflare AI.</p>
         <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/><button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate 7 Scenes →"}</button></div>
         {error && <div className="error"><strong>Generation error</strong><div>{error}</div></div>}
         {visualError && <div className="error"><strong>Visual notice</strong><div>{visualError}</div></div>}
@@ -86,7 +107,10 @@ export default function Home() {
       <div className="phone"><div className="screen">
         {s && visuals[active]?.url ? <img src={visuals[active].url} alt=""/> : s ? <div className="blank"><strong>🎨</strong><h3>{visuals[active]?.source || "Creating visual…"}</h3><button onClick={retryVisual}>Retry visual</button></div> : <div className="blank"><strong>▶</strong><h3>Your reel appears here</h3><p>Enter a topic to start.</p></div>}
         {s && <div className="copy"><small>SCENE {active + 1}/7</small><h2>{s.headline}</h2><p>{s.voiceover}</p></div>}
-      </div><div className="controls"><button onClick={() => setActive(Math.max(0, active - 1))}>‹</button><button onClick={generateVoice} disabled={!s || voiceLoading}>🔊 {voiceLoading ? "…" : ""}</button><button onClick={() => setActive(Math.min(6, active + 1))}>›</button></div>{audio && <audio controls src={audio} style={{ width: "100%", marginTop: 10 }} />}</div>
+      </div><div className="controls"><button onClick={() => setActive(Math.max(0, active - 1))}>‹</button><button onClick={generateVoice} disabled={!s || voiceLoading}>🔊 {voiceLoading ? "…" : ""}</button><button onClick={() => setActive(Math.min(6, active + 1))}>›</button></div>{audio && <audio controls src={audio} style={{ width: "100%", marginTop: 10 }} />}
+      {s && <div style={{ marginTop: 12 }}><button onClick={searchStock} disabled={stockLoading}>{stockLoading ? "Searching Pixabay…" : "🎞 Find real stock video / image"}</button><button onClick={retryVisual} style={{ marginLeft: 8 }}>✨ Generate AI visual</button></div>}
+      {stockResults.length > 0 && <div className="stockResults"><h3>Choose a matching Pixabay visual</h3><div className="grid">{stockResults.map(item => <article key={item.id} onClick={() => chooseStock(item)} style={{ cursor: "pointer" }}>{item.kind === "video" ? <video src={item.url} poster={item.thumbnail} muted playsInline controls style={{ width: "100%", borderRadius: 8 }} /> : <img src={item.url} alt={item.tags || "Pixabay result"} />}<b>{item.kind === "video" ? "Video" : "Image"}: {(item.tags || "Pixabay visual").slice(0, 90)}</b><small>Click to use this visual</small></article>)}</div></div>}
+      </div>
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>
       {visuals[i]?.url ? <img src={visuals[i].url} alt=""/> : <div className="thumbBlank">Visual unavailable</div>}<b>{i + 1}. {x.headline}</b><p>{x.voiceover}</p><small>{visuals[i]?.source}</small>
