@@ -119,10 +119,20 @@ export default function Home() {
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Your browser does not support canvas video export.");
       const canvasStream = canvas.captureStream(30);
-      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" :
-        (MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm");
+      // Mix generated voice audio into the recorded stream; canvas.captureStream alone records video only.
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error("Your browser does not support audio mixing for reel export.");
+      const audioContext = new AudioContextClass();
+      const audioDestination = audioContext.createMediaStreamDestination();
+      const exportStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioDestination.stream.getAudioTracks(),
+      ]);
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" :
+        (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus") ? "video/webm;codecs=vp8,opus" :
+        (MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm"));
       const chunks = [];
-      recorder = new MediaRecorder(canvasStream, { mimeType: mime });
+      recorder = new MediaRecorder(exportStream, { mimeType: mime });
       const finished = new Promise((resolve, reject) => {
         recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
         recorder.onerror = () => reject(new Error("Video recording failed in this browser."));
@@ -150,6 +160,9 @@ export default function Home() {
         if (!voiceRes.ok || !voiceData.audio) throw new Error(voiceData?.error || `Voice generation failed for scene ${i + 1}.`);
         const audio = new Audio(voiceData.audio);
         audio.crossOrigin = "anonymous";
+        const audioSource = audioContext.createMediaElementSource(audio);
+        audioSource.connect(audioDestination);
+        audioSource.connect(audioContext.destination);
         await new Promise((resolve, reject) => {
           audio.oncanplaythrough = resolve; audio.onerror = () => reject(new Error(`Could not load voice audio for scene ${i + 1}.`)); audio.load();
         });
@@ -189,23 +202,27 @@ export default function Home() {
         const tick = setInterval(draw, 1000 / 30);
         try { await audio.play(); } catch { clearInterval(tick); throw new Error("Browser blocked audio playback. Click export again and allow playback."); }
         await new Promise(resolve => {
-          audio.onended = resolve;
-          setTimeout(resolve, (duration + 0.5) * 1000);
+          let done = false;
+          const finish = () => { if (!done) { done = true; resolve(); } };
+          audio.onended = finish;
+          setTimeout(finish, (duration + 1.5) * 1000);
         });
-        clearInterval(tick); audio.pause();
+        clearInterval(tick); audio.pause(); audioSource.disconnect();
         await wait(150);
       }
       recorder.stop();
       await finished;
-      stream = canvasStream;
+      stream = exportStream;
       const blob = new Blob(chunks, { type: "video/webm" });
       if (!blob.size) throw new Error("The exported video was empty. Please try another browser.");
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${(reel.title || "reelforge-reel").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") || "reelforge-reel"}.webm`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      setExportStatus("Export complete. Your reel was downloaded as a WebM video.");
+      await audioContext.close();
+      setExportStatus("Export complete. Your WebM reel includes the generated voiceover.");
     } catch (e) {
       try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {}
+      try { if (stream) stream.getTracks().forEach(track => track.stop()); } catch {}
       setError(e?.message || "Could not export the reel.");
       setExportStatus("");
     } finally {
