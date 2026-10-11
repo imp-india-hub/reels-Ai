@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
@@ -27,6 +27,10 @@ export default function Home() {
   const [visualError, setVisualError] = useState("");
   const [stockResults, setStockResults] = useState([]);
   const [stockLoading, setStockLoading] = useState(false);
+  const [logoData, setLogoData] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
+  const logoInputRef = useRef(null);
 
   async function generate() {
     setLoading(true); setError(""); setVisualError(""); setReel(null); setVisuals([]); setActive(0); setAudio(null);
@@ -94,6 +98,121 @@ export default function Home() {
     } catch (e) { setVisualError(e?.message || "Visual generation failed."); }
   }
 
+
+  function uploadLogo(file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please upload a PNG, JPG, or WebP logo image."); return; }
+    if (file.size > 5 * 1024 * 1024) { setError("Logo must be 5 MB or smaller."); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setLogoData(String(reader.result || "")); setError(""); };
+    reader.onerror = () => setError("Could not read that logo file.");
+    reader.readAsDataURL(file);
+  }
+
+  async function downloadCompleteReel() {
+    if (!reel?.scenes?.length) return;
+    setExporting(true); setExportStatus("Preparing scenes…"); setError("");
+    let stream = null, recorder = null;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 720; canvas.height = 1280;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Your browser does not support canvas video export.");
+      const canvasStream = canvas.captureStream(30);
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" :
+        (MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm");
+      const chunks = [];
+      recorder = new MediaRecorder(canvasStream, { mimeType: mime });
+      const finished = new Promise((resolve, reject) => {
+        recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onerror = () => reject(new Error("Video recording failed in this browser."));
+        recorder.onstop = resolve;
+      });
+      const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const loadImage = src => new Promise((resolve, reject) => {
+        const img = new Image(); img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img); img.onerror = () => reject(new Error("A scene visual could not be loaded for export."));
+        img.src = src;
+      });
+      const drawCover = img => {
+        const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+      };
+      const logo = logoData ? await loadImage(logoData) : null;
+      const scenes = reel.scenes;
+      recorder.start(250);
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i];
+        setExportStatus(`Preparing voice ${i + 1} of ${scenes.length}…`);
+        const voiceRes = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: scene.voiceover }) });
+        const voiceData = await voiceRes.json();
+        if (!voiceRes.ok || !voiceData.audio) throw new Error(voiceData?.error || `Voice generation failed for scene ${i + 1}.`);
+        const audio = new Audio(voiceData.audio);
+        audio.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          audio.oncanplaythrough = resolve; audio.onerror = () => reject(new Error(`Could not load voice audio for scene ${i + 1}.`)); audio.load();
+        });
+        let img = null;
+        if (visuals[i]?.url) {
+          try { img = await loadImage(visuals[i].url); } catch {}
+        }
+        if (!img) {
+          ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "#ffffff"; ctx.font = "bold 40px sans-serif"; ctx.fillText(scene.headline || `Scene ${i + 1}`, 48, 180, 620);
+          ctx.font = "28px sans-serif"; ctx.fillText("Visual unavailable", 48, 240);
+        }
+        const duration = Math.max(3, Number(audio.duration) || 5);
+        setExportStatus(`Recording scene ${i + 1} of ${scenes.length}…`);
+        let start = performance.now();
+        audio.currentTime = 0;
+        const draw = () => {
+          if (img) drawCover(img);
+          else { ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+          const bandH = 300;
+          const grad = ctx.createLinearGradient(0, canvas.height - bandH, 0, canvas.height);
+          grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(0.25, "rgba(0,0,0,0.62)"); grad.addColorStop(1, "rgba(0,0,0,0.88)");
+          ctx.fillStyle = grad; ctx.fillRect(0, canvas.height - bandH, canvas.width, bandH);
+          if (logo) {
+            const maxW = 130, maxH = 80, sc = Math.min(maxW / logo.width, maxH / logo.height, 1);
+            ctx.drawImage(logo, canvas.width - logo.width * sc - 28, 28, logo.width * sc, logo.height * sc);
+          }
+          ctx.fillStyle = "#93c5fd"; ctx.font = "bold 24px sans-serif"; ctx.fillText(`SCENE ${i + 1} / ${scenes.length}`, 42, canvas.height - 220);
+          ctx.fillStyle = "#ffffff"; ctx.font = "bold 42px sans-serif";
+          const headline = String(scene.headline || "").slice(0, 90); ctx.fillText(headline, 42, canvas.height - 168, 630);
+          ctx.font = "30px sans-serif";
+          const words = String(scene.voiceover || "").split(/\s+/); let line = "", y = canvas.height - 112;
+          for (const word of words) { const test = line ? `${line} ${word}` : word; if (ctx.measureText(test).width > 630) { ctx.fillText(line, 42, y); y += 38; line = word; if (y > canvas.height - 35) break; } else line = test; }
+          if (line && y <= canvas.height - 35) ctx.fillText(line, 42, y);
+        };
+        draw();
+        const tick = setInterval(draw, 1000 / 30);
+        try { await audio.play(); } catch { clearInterval(tick); throw new Error("Browser blocked audio playback. Click export again and allow playback."); }
+        await new Promise(resolve => {
+          audio.onended = resolve;
+          setTimeout(resolve, (duration + 0.5) * 1000);
+        });
+        clearInterval(tick); audio.pause();
+        await wait(150);
+      }
+      recorder.stop();
+      await finished;
+      stream = canvasStream;
+      const blob = new Blob(chunks, { type: "video/webm" });
+      if (!blob.size) throw new Error("The exported video was empty. Please try another browser.");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `${(reel.title || "reelforge-reel").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") || "reelforge-reel"}.webm`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      setExportStatus("Export complete. Your reel was downloaded as a WebM video.");
+    } catch (e) {
+      try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {}
+      setError(e?.message || "Could not export the reel.");
+      setExportStatus("");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return <main>
     <nav><b>⚡ ReelForge AI</b><span>OpenRouter + Cloudflare AI · 7 Scenes · 9:16</span></nav>
     <section className="hero">
@@ -111,6 +230,15 @@ export default function Home() {
       {s && <div style={{ marginTop: 12 }}><button onClick={searchStock} disabled={stockLoading}>{stockLoading ? "Searching Pixabay…" : "🎞 Find real stock video / image"}</button><button onClick={retryVisual} style={{ marginLeft: 8 }}>✨ Generate AI visual</button></div>}
       {stockResults.length > 0 && <div className="stockResults"><h3>Choose a matching Pixabay visual</h3><div className="grid">{stockResults.map(item => <article key={item.id} onClick={() => chooseStock(item)} style={{ cursor: "pointer" }}>{item.kind === "video" ? <video src={item.url} poster={item.thumbnail} muted playsInline controls style={{ width: "100%", borderRadius: 8 }} /> : <img src={item.url} alt={item.tags || "Pixabay result"} />}<b>{item.kind === "video" ? "Video" : "Image"}: {(item.tags || "Pixabay visual").slice(0, 90)}</b><small>Click to use this visual</small></article>)}</div></div>}
       </div>
+      {reel && <div className="box" style={{ marginTop: 16 }}>
+        <h3>Brand your reel</h3>
+        <p>Upload your own logo to place it in the top-right corner of every exported scene.</p>
+        <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={e => uploadLogo(e.target.files?.[0])} />
+        {logoData && <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}><img src={logoData} alt="Uploaded logo preview" style={{ maxWidth: 120, maxHeight: 64, objectFit: "contain", background: "#fff", padding: 6, borderRadius: 8 }} /><button type="button" onClick={() => { setLogoData(""); if (logoInputRef.current) logoInputRef.current.value = ""; }}>Remove logo</button></div>}
+        <button onClick={downloadCompleteReel} disabled={exporting || !reel?.scenes?.length} style={{ marginTop: 12 }}>{exporting ? "Exporting complete reel…" : "⬇ Download Complete Reel (WebM)"}</button>
+        {exportStatus && <p aria-live="polite">{exportStatus}</p>}
+        <small>Export creates a vertical 9:16 video with scene visuals, headlines, voiceover, and your optional logo. This browser export downloads WebM, not MP4.</small>
+      </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>
       {visuals[i]?.url ? <img src={visuals[i].url} alt=""/> : <div className="thumbBlank">Visual unavailable</div>}<b>{i + 1}. {x.headline}</b><p>{x.voiceover}</p><small>{visuals[i]?.source}</small>
