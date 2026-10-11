@@ -99,10 +99,11 @@ Each visual_prompt describes the matching moment in the story, keeping the same 
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
-    // Use the selected model only. Do not silently switch to a paid model when
-    // the user's intended setup is free-tier OpenRouter inference.
-    const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim();
-    const models = [configuredModel || "dots-studio/dots-3-note-preview:free"];
+    // Try the selected free model first, then OpenRouter's free-only router.
+    // This fallback never selects a paid model. Dots3-Note Preview has had
+    // availability/deprecation changes, so a second free route avoids a hard stop.
+    const configuredModel = process.env.OPENROUTER_TEXT_MODEL?.trim() || "dots-studio/dots-3-note-preview:free";
+    const models = [...new Set([configuredModel, "openrouter/free"])];
     let reel = null;
     let lastError = null;
 
@@ -140,8 +141,10 @@ Return only a JSON object matching the requested schema.`;
         const msg = data?.error?.message || data?.message || `HTTP ${response.status}`;
         lastError = new Error(`OpenRouter request failed for ${model} (${response.status}): ${msg}`);
         lastError.status = response.status;
-        // Credentials, billing and rate limits cannot be fixed by switching models.
-        if ([401, 403, 402, 429].includes(response.status)) throw lastError;
+        // Invalid credentials and account billing errors are account-wide.
+        // Model access, provider, and rate-limit errors may be recoverable via
+        // OpenRouter's free-only router, so continue to the next candidate.
+        if ([401, 402].includes(response.status)) throw lastError;
         continue;
       }
 
@@ -191,11 +194,11 @@ Return only a JSON object matching the requested schema.`;
     } else if (e?.status === 402 || lower.includes("insufficient credits") || lower.includes("payment required")) {
       error = "Your OpenRouter account needs credits or billing setup before it can generate scripts.";
     } else if (e?.status === 403 || lower.includes("permission") || lower.includes("forbidden")) {
-      error = "OpenRouter access was denied. Check your API key and account credits.";
+      error = "OpenRouter denied access to both the selected model and the free-model fallback. Check your API key permissions and model access.";
     } else if (e?.status === 429 || lower.includes("quota") || lower.includes("resource exhausted") || lower.includes("rate limit")) {
-      error = "OpenRouter rate limit or credits reached. Check your OpenRouter activity and credits.";
+      error = "OpenRouter free-model rate limits may have been reached. Wait and retry, or check OpenRouter activity.";
     } else if (e?.status === 404 || lower.includes("not found") || lower.includes("model")) {
-      error = "OpenRouter could not use the selected model or its fallbacks. Check OPENROUTER_TEXT_MODEL and model access.";
+      error = "OpenRouter could not use the selected model or the free-model router. Check the model ID and OpenRouter model availability.";
     } else if (lower.includes("invalid json")) {
       error = "OpenRouter responded, but the reel JSON was invalid. Please try again.";
     }
