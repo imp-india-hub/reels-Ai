@@ -19,6 +19,7 @@ export default function Home() {
   const [topic, setTopic] = useState("");
   const [language, setLanguage] = useState("en");
   const [motionStyle, setMotionStyle] = useState("kenburns");
+  const [musicStyle, setMusicStyle] = useState("cinematic");
   const [reel, setReel] = useState(null);
   const [visuals, setVisuals] = useState([]);
   const [active, setActive] = useState(0);
@@ -125,7 +126,53 @@ export default function Home() {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) throw new Error("Your browser does not support audio mixing for reel export.");
       const audioContext = new AudioContextClass();
+      await audioContext.resume();
       const audioDestination = audioContext.createMediaStreamDestination();
+      // Generate a continuous, royalty-free ambient music bed in the browser so it runs
+      // seamlessly underneath every scene without requiring external audio files.
+      let stopBackgroundMusic = () => {};
+      if (musicStyle !== "none") {
+        const musicGain = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = musicStyle === "dramatic" ? 900 : musicStyle === "calm" ? 650 : 1200;
+        musicGain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        musicGain.gain.linearRampToValueAtTime(musicStyle === "dramatic" ? 0.075 : 0.055, audioContext.currentTime + 2.5);
+        filter.connect(musicGain);
+        musicGain.connect(audioDestination);
+        musicGain.connect(audioContext.destination);
+        const pad = [0, 1, 2].map((n) => {
+          const osc = audioContext.createOscillator();
+          const voiceGain = audioContext.createGain();
+          osc.type = musicStyle === "dramatic" ? "triangle" : musicStyle === "uplifting" ? "sine" : "sine";
+          voiceGain.gain.value = n === 0 ? 0.55 : n === 1 ? 0.30 : 0.18;
+          osc.connect(voiceGain); voiceGain.connect(filter); osc.start();
+          return { osc, voiceGain };
+        });
+        const progressions = {
+          cinematic: [[110, 164.81, 220], [87.31, 130.81, 174.61], [98, 146.83, 196], [73.42, 110, 146.83]],
+          uplifting: [[130.81, 164.81, 196], [98, 130.81, 164.81], [110, 146.83, 196], [87.31, 130.81, 174.61]],
+          calm: [[130.81, 164.81, 196], [110, 146.83, 174.61], [98, 130.81, 164.81], [110, 146.83, 174.61]],
+          dramatic: [[73.42, 110, 146.83], [65.41, 98, 130.81], [82.41, 123.47, 164.81], [73.42, 110, 146.83]]
+        };
+        const progression = progressions[musicStyle] || progressions.cinematic;
+        let chordIndex = 0;
+        const setChord = () => {
+          const chord = progression[chordIndex % progression.length];
+          pad.forEach((voice, i) => voice.osc.frequency.setTargetAtTime(chord[i], audioContext.currentTime, 0.8));
+          chordIndex++;
+        };
+        setChord();
+        const chordTimer = setInterval(setChord, 4200);
+        stopBackgroundMusic = () => {
+          clearInterval(chordTimer);
+          try {
+            musicGain.gain.cancelScheduledValues(audioContext.currentTime);
+            musicGain.gain.setTargetAtTime(0.0001, audioContext.currentTime, 0.3);
+            setTimeout(() => { pad.forEach(v => { try { v.osc.stop(); } catch {} }); }, 1200);
+          } catch {}
+        };
+      }
       const exportStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
         ...audioDestination.stream.getAudioTracks(),
@@ -218,6 +265,7 @@ export default function Home() {
         clearInterval(tick); audio.pause(); audioSource.disconnect();
         await wait(150);
       }
+      stopBackgroundMusic();
       recorder.stop();
       await finished;
       stream = exportStream;
@@ -227,7 +275,7 @@ export default function Home() {
       const a = document.createElement("a"); a.href = url; a.download = `${(reel.title || "reelforge-reel").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") || "reelforge-reel"}.webm`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
       await audioContext.close();
-      setExportStatus("Export complete. Your WebM reel includes the generated voiceover.");
+      setExportStatus(musicStyle === "none" ? "Export complete. Your WebM reel includes the generated voiceover." : "Export complete. Your WebM reel includes continuous background music mixed softly under the voiceover.");
     } catch (e) {
       try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch {}
       try { if (stream) stream.getTracks().forEach(track => track.stop()); } catch {}
@@ -246,6 +294,8 @@ export default function Home() {
         <p>OpenRouter writes the story and creates the voice. Search real Pixabay footage or create custom visuals with Cloudflare AI.</p>
         <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/>
           <label>REEL LANGUAGE</label><select value={language} onChange={e => setLanguage(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="en">English (Indian English voice when available)</option><option value="hi">Hindi</option><option value="bilingual">Hindi + English (bilingual script)</option></select>
+          <label>BACKGROUND MUSIC</label><select value={musicStyle} onChange={e => setMusicStyle(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="cinematic">Cinematic / emotional — connects the story</option><option value="uplifting">Uplifting / positive</option><option value="calm">Calm / inspirational</option><option value="dramatic">Dramatic / suspense</option><option value="none">No background music</option></select>
+          <small style={{ display: "block", marginTop: -8, marginBottom: 12 }}>Music plays continuously across all 7 scenes and stays quieter than the narration.</small>
           <label>GRAPHICS MOTION</label><select value={motionStyle} onChange={e => setMotionStyle(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="kenburns">Cinematic zoom (Ken Burns)</option><option value="slide">Horizontal slide</option><option value="pan-up">Slow upward pan</option><option value="pulse">Gentle pulse</option><option value="none">No motion</option></select>
           <button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate Story Reel →"}</button></div>
         {error && <div className="error"><strong>Generation error</strong><div>{error}</div></div>}
@@ -265,7 +315,7 @@ export default function Home() {
         {logoData && <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}><img src={logoData} alt="Uploaded logo preview" style={{ maxWidth: 120, maxHeight: 64, objectFit: "contain", background: "#fff", padding: 6, borderRadius: 8 }} /><button type="button" onClick={() => { setLogoData(""); if (logoInputRef.current) logoInputRef.current.value = ""; }}>Remove logo</button></div>}
         <button onClick={downloadCompleteReel} disabled={exporting || !reel?.scenes?.length} style={{ marginTop: 12 }}>{exporting ? "Exporting complete reel…" : "⬇ Download Complete Reel (WebM)"}</button>
         {exportStatus && <p aria-live="polite">{exportStatus}</p>}
-        <small>Export creates a vertical 9:16 WebM with visuals, animated graphics, headlines, generated voiceover, and your optional logo. Language and voice availability depend on your configured speech provider. This is WebM, not MP4.</small>
+        <small>Export creates a vertical 9:16 WebM with visuals, animated graphics, headlines, generated voiceover, optional continuous background music, and your optional logo. Music is synthesized in-browser; this is WebM, not MP4.</small>
       </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>
