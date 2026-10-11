@@ -13,7 +13,7 @@ async function runModel(model, prompt) {
   form.append("width", "768");
   form.append("height", "1344");
 
-  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${encodeURIComponent(model)}`, {
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${model}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -58,7 +58,11 @@ export async function POST(request) {
         try {
           return Response.json(await runModel(model, prompt || query || "business"));
         } catch (e) {
-          errors.push(`${model} attempt ${attempt}: ${e?.message || e}`);
+          const message = e?.message || String(e);
+          errors.push(`${model} attempt ${attempt}: ${message}`);
+          // A 400 "No route for that URI" is a permanent endpoint/path error;
+          // retrying the same request cannot fix it.
+          if (/400:.*No route for that URI/i.test(message)) break;
           if (attempt === 1) await new Promise(r => setTimeout(r, 700));
         }
       }
