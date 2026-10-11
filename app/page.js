@@ -17,6 +17,8 @@ async function mapLimit(items, limit, fn) {
 
 export default function Home() {
   const [topic, setTopic] = useState("");
+  const [language, setLanguage] = useState("en");
+  const [motionStyle, setMotionStyle] = useState("kenburns");
   const [reel, setReel] = useState(null);
   const [visuals, setVisuals] = useState([]);
   const [active, setActive] = useState(0);
@@ -35,7 +37,7 @@ export default function Home() {
   async function generate() {
     setLoading(true); setError(""); setVisualError(""); setReel(null); setVisuals([]); setActive(0); setAudio(null);
     try {
-      const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic }) });
+      const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic, language }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Gemini generation failed.");
       setReel(d);
@@ -61,7 +63,7 @@ export default function Home() {
     if (!s?.voiceover) return;
     setVoiceLoading(true); setError("");
     try {
-      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: s.voiceover }) });
+      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: s.voiceover, language }) });
       const d = await r.json();
       if (!r.ok || !d.audio) throw new Error(d?.error || "Voice generation failed.");
       setAudio(d.audio);
@@ -144,10 +146,15 @@ export default function Home() {
         img.onload = () => resolve(img); img.onerror = () => reject(new Error("A scene visual could not be loaded for export."));
         img.src = src;
       });
-      const drawCover = img => {
-        const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+      const drawCover = (img, progress = 0) => {
+        const base = Math.max(canvas.width / img.width, canvas.height / img.height);
+        const zoom = motionStyle === "none" ? 1 : motionStyle === "pulse" ? 1 + 0.025 * Math.sin(progress * Math.PI * 2) : 1 + 0.12 * progress;
+        const scale = base * zoom;
         const w = img.width * scale, h = img.height * scale;
-        ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+        let x = (canvas.width - w) / 2, y = (canvas.height - h) / 2;
+        if (motionStyle === "slide") x += (progress - 0.5) * 90;
+        if (motionStyle === "pan-up") y += (0.5 - progress) * 90;
+        ctx.drawImage(img, x, y, w, h);
       };
       const logo = logoData ? await loadImage(logoData) : null;
       const scenes = reel.scenes;
@@ -155,7 +162,7 @@ export default function Home() {
       for (let i = 0; i < scenes.length; i++) {
         const scene = scenes[i];
         setExportStatus(`Preparing voice ${i + 1} of ${scenes.length}…`);
-        const voiceRes = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: scene.voiceover }) });
+        const voiceRes = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: scene.voiceover, language }) });
         const voiceData = await voiceRes.json();
         if (!voiceRes.ok || !voiceData.audio) throw new Error(voiceData?.error || `Voice generation failed for scene ${i + 1}.`);
         const audio = new Audio(voiceData.audio);
@@ -180,7 +187,8 @@ export default function Home() {
         let start = performance.now();
         audio.currentTime = 0;
         const draw = () => {
-          if (img) drawCover(img);
+          const progress = Math.min(1, Math.max(0, (performance.now() - start) / (duration * 1000)));
+          if (img) drawCover(img, progress);
           else { ctx.fillStyle = "#111827"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
           const bandH = 300;
           const grad = ctx.createLinearGradient(0, canvas.height - bandH, 0, canvas.height);
@@ -236,7 +244,10 @@ export default function Home() {
       <div>
         <small>AI REEL STUDIO</small><h1>Turn any topic into a <i>ready-to-share reel.</i></h1>
         <p>OpenRouter writes the story and creates the voice. Search real Pixabay footage or create custom visuals with Cloudflare AI.</p>
-        <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/><button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate 7 Scenes →"}</button></div>
+        <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/>
+          <label>REEL LANGUAGE</label><select value={language} onChange={e => setLanguage(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="en">English (Indian English voice when available)</option><option value="hi">Hindi</option><option value="bilingual">Hindi + English (bilingual script)</option></select>
+          <label>GRAPHICS MOTION</label><select value={motionStyle} onChange={e => setMotionStyle(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="kenburns">Cinematic zoom (Ken Burns)</option><option value="slide">Horizontal slide</option><option value="pan-up">Slow upward pan</option><option value="pulse">Gentle pulse</option><option value="none">No motion</option></select>
+          <button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate 7 Scenes →"}</button></div>
         {error && <div className="error"><strong>Generation error</strong><div>{error}</div></div>}
         {visualError && <div className="error"><strong>Visual notice</strong><div>{visualError}</div></div>}
       </div>
@@ -254,7 +265,7 @@ export default function Home() {
         {logoData && <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}><img src={logoData} alt="Uploaded logo preview" style={{ maxWidth: 120, maxHeight: 64, objectFit: "contain", background: "#fff", padding: 6, borderRadius: 8 }} /><button type="button" onClick={() => { setLogoData(""); if (logoInputRef.current) logoInputRef.current.value = ""; }}>Remove logo</button></div>}
         <button onClick={downloadCompleteReel} disabled={exporting || !reel?.scenes?.length} style={{ marginTop: 12 }}>{exporting ? "Exporting complete reel…" : "⬇ Download Complete Reel (WebM)"}</button>
         {exportStatus && <p aria-live="polite">{exportStatus}</p>}
-        <small>Export creates a vertical 9:16 video with scene visuals, headlines, voiceover, and your optional logo. This browser export downloads WebM, not MP4.</small>
+        <small>Export creates a vertical 9:16 WebM with scene visuals, animated graphics, headlines, generated voiceover, and your optional logo. Language and voice availability depend on your configured speech provider. This is WebM, not MP4.</small>
       </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>

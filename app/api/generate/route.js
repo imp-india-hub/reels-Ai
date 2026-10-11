@@ -79,6 +79,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const clean = body?.topic?.trim();
+    const language = ["en", "hi", "bilingual"].includes(body?.language) ? body.language : "en";
 
     if (!clean) {
       return Response.json({ error: "Please enter a topic first." }, { status: 400 });
@@ -89,9 +90,11 @@ export async function POST(request) {
       return Response.json({ error: "OPENROUTER_API_KEY is missing in Vercel Environment Variables." }, { status: 500 });
     }
 
+    const languageInstruction = language === "hi" ? "Write every headline and voiceover in natural, conversational Hindi (Devanagari script)." : language === "bilingual" ? "Write every headline and voiceover in natural Hindi-English bilingual style, mixing Hindi and commonly used English naturally. Use Devanagari for Hindi words and Latin script for English words." : "Write every headline and voiceover in clear, natural Indian English.";
     const prompt = `Create an engaging 7-scene vertical social media reel about "${clean}".
 Exactly 7 scenes. Scene 1 is a strong hook. Scenes 2-6 provide useful information. Scene 7 is a takeaway or CTA.
-Each voiceover is natural spoken language, 12-22 words. Use clear, natural Indian English phrasing when suitable.
+${languageInstruction}
+Each voiceover is natural spoken language, 12-22 words.
 Each visual_prompt is realistic/cinematic, vertical, and must contain no text, logos or watermarks.
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;

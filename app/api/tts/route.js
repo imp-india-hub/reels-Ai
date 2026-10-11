@@ -16,18 +16,19 @@ function getVoiceList(model) {
   return [];
 }
 
-function isIndianEnglishVoice(voice) {
+function isLocaleVoice(voice, language) {
+  if (language === "hi" || language === "bilingual") return /hi[-_]IN(?:[-_:]|$)|hindi/i.test(voice);
   return /en[-_]IN(?:[-_:]|$)|indian[-_ ]english/i.test(voice);
 }
 
-async function resolveIndianVoice(apiKey) {
+async function resolveIndianVoice(apiKey, language = "en") {
   const configuredModel = process.env.OPENROUTER_TTS_MODEL?.trim();
   const configuredVoice = process.env.OPENROUTER_TTS_VOICE?.trim();
 
   // Explicit overrides are accepted only when the voice ID itself indicates
   // Indian English; never let an arbitrary voice silently violate the request.
-  if (configuredModel && configuredVoice && !isIndianEnglishVoice(configuredVoice)) {
-    throw new Error("OPENROUTER_TTS_VOICE must be an exact supported Indian-English voice ID containing en-IN. Check the OpenRouter speech-model catalog.");
+  if (configuredModel && configuredVoice && !isLocaleVoice(configuredVoice, language)) {
+    throw new Error(language === "hi" || language === "bilingual" ? "The configured voice is not identified as a supported Hindi voice. Set a verified Hindi voice ID from the OpenRouter speech-model catalog." : "OPENROUTER_TTS_VOICE must be an exact supported Indian-English voice ID containing en-IN.");
   }
 
   const r = await fetch(CATALOG_URL, {
@@ -52,24 +53,26 @@ async function resolveIndianVoice(apiKey) {
     const voices = getVoiceList(model);
     const voice = configuredVoice
       ? voices.find(v => v === configuredVoice)
-      : voices.find(isIndianEnglishVoice);
-    if (voice && isIndianEnglishVoice(voice)) {
+       : voices.find(v => isLocaleVoice(v, language));
+    if (voice && isLocaleVoice(voice, language)) {
       return { model: model.id, voice, selectedBy: "verified-catalog" };
     }
   }
 
-  throw new Error("OpenRouter's current speech-model catalog did not expose a verified Indian-English (en-IN) voice. No audio was generated with a different accent. Check https://openrouter.ai/api/v1/models?output_modalities=speech and set OPENROUTER_TTS_MODEL plus OPENROUTER_TTS_VOICE in Vercel to a model/voice pair that explicitly supports en-IN.");
+  throw new Error(language === "hi" || language === "bilingual" ? "OpenRouter did not expose a verified Hindi (hi-IN) voice in its current speech catalog. The script can be generated in Hindi, but voice export needs a speech model/voice that supports Hindi. Check https://openrouter.ai/api/v1/models?output_modalities=speech and configure a verified Hindi voice." : "OpenRouter's current speech-model catalog did not expose a verified Indian-English (en-IN) voice. No audio was generated with a different accent. Check https://openrouter.ai/api/v1/models?output_modalities=speech and set OPENROUTER_TTS_MODEL plus OPENROUTER_TTS_VOICE in Vercel to a model/voice pair that explicitly supports en-IN.");
 }
 
 export async function POST(request) {
   try {
-    const { text } = await request.json();
+    const body = await request.json();
+    const text = body?.text;
+    const language = ["en", "hi", "bilingual"].includes(body?.language) ? body.language : "en";
     const apiKey = process.env.OPENROUTER_API_KEY?.trim();
     if (!apiKey) return Response.json({ error: "OPENROUTER_API_KEY is missing in Vercel Environment Variables." }, { status: 500 });
     if (typeof text !== "string" || !text.trim()) return Response.json({ error: "Text is required." }, { status: 400 });
     if (text.length > 4000) return Response.json({ error: "Voiceover is too long. Keep it under 4,000 characters." }, { status: 400 });
 
-    const { model, voice, selectedBy } = await resolveIndianVoice(apiKey);
+    const { model, voice, selectedBy } = await resolveIndianVoice(apiKey, language);
     const response = await fetch("https://openrouter.ai/api/v1/audio/speech", {
       method: "POST",
       headers: {
@@ -105,7 +108,7 @@ export async function POST(request) {
       audio: `data:${contentType};base64,${bytes.toString("base64")}`,
       voice,
       model,
-      accent: "Indian English (verified voice locale)",
+      accent: language === "hi" || language === "bilingual" ? "Hindi (verified voice locale)" : "Indian English (verified voice locale)",
       selectedBy,
       mimeType: contentType
     });
