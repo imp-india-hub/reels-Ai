@@ -239,7 +239,7 @@ export default function Home() {
   }
 
   return <main>
-    <nav><b>⚡ ReelForge AI</b><span>OpenRouter + Cloudflare AI · 7 Scenes · 9:16</span></nav>
+    <nav><b>⚡ ReelForge AI</b><span>OpenRouter + Cloudflare AI · Story Reel · 9:16</span></nav>
     <section className="hero">
       <div>
         <small>AI REEL STUDIO</small><h1>Turn any topic into a <i>ready-to-share reel.</i></h1>
@@ -247,13 +247,13 @@ export default function Home() {
         <div className="box"><label>YOUR TOPIC</label><textarea value={topic} onChange={e => setTopic(e.target.value)} placeholder="Example: How restaurants can use AI to get more customers"/>
           <label>REEL LANGUAGE</label><select value={language} onChange={e => setLanguage(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="en">English (Indian English voice when available)</option><option value="hi">Hindi</option><option value="bilingual">Hindi + English (bilingual script)</option></select>
           <label>GRAPHICS MOTION</label><select value={motionStyle} onChange={e => setMotionStyle(e.target.value)} style={{ width: "100%", padding: 12, margin: "8px 0 14px", borderRadius: 8 }}><option value="kenburns">Cinematic zoom (Ken Burns)</option><option value="slide">Horizontal slide</option><option value="pan-up">Slow upward pan</option><option value="pulse">Gentle pulse</option><option value="none">No motion</option></select>
-          <button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate 7 Scenes →"}</button></div>
+          <button disabled={loading || !topic.trim()} onClick={generate}>{loading ? "Creating your reel…" : "Generate Story Reel →"}</button></div>
         {error && <div className="error"><strong>Generation error</strong><div>{error}</div></div>}
         {visualError && <div className="error"><strong>Visual notice</strong><div>{visualError}</div></div>}
       </div>
       <div className="phone"><div className="screen">
         {s && visuals[active]?.url ? <img src={visuals[active].url} alt=""/> : s ? <div className="blank"><strong>🎨</strong><h3>{visuals[active]?.source || "Creating visual…"}</h3><button onClick={retryVisual}>Retry visual</button></div> : <div className="blank"><strong>▶</strong><h3>Your reel appears here</h3><p>Enter a topic to start.</p></div>}
-        {s && <div className="copy"><small>SCENE {active + 1}/7</small><h2>{s.headline}</h2><p>{s.voiceover}</p></div>}
+        {s && <div className="copy"><h2>{s.headline}</h2><p>{s.voiceover}</p></div>}
       </div><div className="controls"><button onClick={() => setActive(Math.max(0, active - 1))}>‹</button><button onClick={generateVoice} disabled={!s || voiceLoading}>🔊 {voiceLoading ? "…" : ""}</button><button onClick={() => setActive(Math.min(6, active + 1))}>›</button></div>{audio && <audio controls src={audio} style={{ width: "100%", marginTop: 10 }} />}
       {s && <div style={{ marginTop: 12 }}><button onClick={searchStock} disabled={stockLoading}>{stockLoading ? "Searching Pixabay…" : "🎞 Find real stock video / image"}</button><button onClick={retryVisual} style={{ marginLeft: 8 }}>✨ Generate AI visual</button></div>}
       {stockResults.length > 0 && <div className="stockResults"><h3>Choose a matching Pixabay visual</h3><div className="grid">{stockResults.map(item => <article key={item.id} onClick={() => chooseStock(item)} style={{ cursor: "pointer" }}>{item.kind === "video" ? <video src={item.url} poster={item.thumbnail} muted playsInline controls style={{ width: "100%", borderRadius: 8 }} /> : <img src={item.url} alt={item.tags || "Pixabay result"} />}<b>{item.kind === "video" ? "Video" : "Image"}: {(item.tags || "Pixabay visual").slice(0, 90)}</b><small>Click to use this visual</small></article>)}</div></div>}
@@ -265,7 +265,7 @@ export default function Home() {
         {logoData && <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}><img src={logoData} alt="Uploaded logo preview" style={{ maxWidth: 120, maxHeight: 64, objectFit: "contain", background: "#fff", padding: 6, borderRadius: 8 }} /><button type="button" onClick={() => { setLogoData(""); if (logoInputRef.current) logoInputRef.current.value = ""; }}>Remove logo</button></div>}
         <button onClick={downloadCompleteReel} disabled={exporting || !reel?.scenes?.length} style={{ marginTop: 12 }}>{exporting ? "Exporting complete reel…" : "⬇ Download Complete Reel (WebM)"}</button>
         {exportStatus && <p aria-live="polite">{exportStatus}</p>}
-        <small>Export creates a vertical 9:16 WebM with scene visuals, animated graphics, headlines, generated voiceover, and your optional logo. Language and voice availability depend on your configured speech provider. This is WebM, not MP4.</small>
+        <small>Export creates a vertical 9:16 WebM with visuals, animated graphics, headlines, generated voiceover, and your optional logo. Language and voice availability depend on your configured speech provider. This is WebM, not MP4.</small>
       </div>}
     </section>
     {reel && <section className="story"><h2>{reel.title}</h2><div className="grid">{reel.scenes.map((x, i) => <article key={i} className={i === active ? "active" : ""} onClick={() => { setActive(i); setAudio(null); }}>

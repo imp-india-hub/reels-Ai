@@ -95,7 +95,7 @@ export async function POST(request) {
 Think like a storyteller, not a presenter giving a speech or a list of tips. Use one relatable person, moment, problem, desire, or situation as the emotional thread whenever the topic allows. Begin with a vivid moment or feeling that makes viewers curious. Each next beat must grow naturally from the previous beat: show what happened next, what changed, what the person felt or discovered, and why it matters. Include a small obstacle or tension, a believable turning point, and a satisfying emotional payoff. Make the SEVENTH and final beat a clear, compelling call to action (CTA) that grows naturally from the story: tell the viewer exactly ONE next step to take now (for example comment with an answer, save this for later, share it with someone who needs it, try the solution, or visit/contact the brand if the topic clearly supports that). Make the benefit or emotional reason to act clear. Keep it short, specific to this topic, warm and memorable; avoid vague endings like “what do you think?”, “follow for more”, “learn more”, or “take the first step” unless made concrete. Do not invent URLs, phone numbers, discounts, guarantees, or brand claims. For Hindi/bilingual reels, write the CTA naturally in the selected language style. The seventh headline should be a natural CTA phrase, never a scene label. The final voiceover must finish with the actual spoken CTA, not just a moral or summary. Avoid generic introductions like "Today we will talk about", "First", "Secondly", "In conclusion", and avoid repeating the topic as a lecture.
 ${languageInstruction}
 Every headline and voiceover must sound like the next line in the SAME story. Voiceover is conversational and emotionally warm, 12-22 words per beat. Use natural spoken phrasing and concrete details; do not use bullet points or numbered language. Keep transitions implicit through cause-and-effect, not labels. Headline is a short, cinematic phrase, not a scene label.
-Each visual_prompt describes the matching moment in the story, keeping the same people/setting visually consistent across beats where appropriate. Visuals must be realistic/cinematic, vertical, and contain no text, logos or watermarks.
+Each visual_prompt describes the matching moment in the story, keeping the same people/setting visually consistent across beats where appropriate. Visuals must be realistic/cinematic, vertical, and contain absolutely NO text of any kind: no words, letters, captions, subtitles, labels, scene numbers, digits, typography, logos, watermarks, UI, or signage. Depict only the visual moment. Never put “Scene 1”, “Scene 2”, or any numbering inside an image.
 visual_query is 2-5 simple English keywords. Duration is normally 4 seconds.
 Return only a JSON object matching the requested schema.`;
 
@@ -147,7 +147,7 @@ Return only a JSON object matching the requested schema.`;
     reel.hook = String(reel.hook || reel.scenes[0]?.voiceover || "");
     reel.scenes = reel.scenes.map((s, i) => ({
       scene: i + 1,
-      headline: String(s?.headline || `Scene ${i + 1}`),
+      headline: String(s?.headline || "A moment unfolds").replace(/^\s*(scene|chapter|part)\s*\d+\s*[:.-]?\s*/i, ""),
       visual_prompt: String(s?.visual_prompt || clean),
       visual_query: String(s?.visual_query || clean),
       voiceover: String(s?.voiceover || ""),
